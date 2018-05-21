@@ -119,7 +119,7 @@ class Move(smach.State):
 		rospy.loginfo('Executing state MOVE')
 
 		#comando para aprender a ler a cor
-		vel = Twist(Vector3(1,0,0), Vector3(0,0,0))
+		vel = Twist(Vector3(100,0,0), Vector3(0,0,0))
 		pub_Move.publish(vel)
 		return 'Mover'
 
@@ -129,7 +129,7 @@ def maquina():
 	rospy.init_node('Drone_State_Machine')
 	pub_TakeOff = rospy.Publisher("bebop/takeoff", Empty, queue_size = 10)
 	pub_Land = rospy.Publisher("bebop/land", Empty, queue_size = 10)
-	pub_Move = rospy.Publisher("cmd_vel", Twist, queue_size = 10)
+	pub_Move = rospy.Publisher("bebop/cmd_vel", Twist, queue_size = 10)
 
 	sub_Cam = rospy.Subscriber("bebop/image_raw/compressed", CompressedImage, showImage, queue_size = 10)
 	rate = rospy.Rate(10) # 10hz
@@ -141,6 +141,7 @@ def maquina():
 	with sm:
 
 		# Add states to the container
+
 
 		smach.StateMachine.add('TAKEOFF', TakeOff(),
 								transitions = {'Decolar':'TAKEOFF',
@@ -156,6 +157,7 @@ def maquina():
 								transitions = {'Pousar':'LAND',
 												'Decolar':'TAKEOFF',
 												'Mover':'MOVE'})
+
 	# Execute SMACH plan
 	outcome = sm.execute()
 
