@@ -12,19 +12,19 @@ from std_msgs.msg import String, Empty
 from sensor_msgs.msg import Image, CompressedImage
 from geometry_msgs.msg import Twist, Vector3, Pose, Vector3Stamped
 
+
 ################################################################################
 
 bridge = CvBridge()
 
-
-countCam = 0  # Variavel para teste de Camera
 atraso = 1.5  # Atraso aceitavel pela Camera
 
-roiPts = []
 roiBox = None
-inputPointMode = False
 
-cv2.setMouseCallback("image", click_and_crop)
+PegarFundo = False
+Fundo_Atual = []
+Imagem_ComFundo = []
+
 
 # Range de Cor a ser procurado (Tempoarario para testes)
 cor_maior = np.array([70, 255, 255])
@@ -32,26 +32,9 @@ cor_menor = np.array([50, 50, 50])
 
 ################################################################################
 
-def click_and_crop(event, x, y, flags, param):
-	 # grab the reference to the current frame, list of ROI
-	 # points and whether or not it is ROI selection mode
-	 global frame, roiPts, inputPointMode
-
-	 # if we are in ROI selection mode, the mouse was clicked,
-	 # and we do not already have four points, then update the
-	 # list of ROI points with the (x, y) location of the click
-	 # and draw the circle
-	 if inputPointMode and event == cv2.EVENT_LBUTTONDOWN and len(roiPts) < 4:
-		  roiPts.append((x, y))
-		  cv2.circle(frame, (x, y), 4, (0, 255, 0), 2)
-		  cv2.imshow("image", frame)
 
 
-
-
-
-
-	 # REMOVER: FUNC ANTIGA
+######### REMOVER ------- FUNC ANTIGA
 
 def identifica_cor(frame):
 	global cor_maior, cor_menor, frame_hsv
@@ -89,9 +72,10 @@ def identifica_cor(frame):
 	return media, centro
 
 def CamShiftTrack(frame):
+	global roiBox
 	if roiBox is not None:
 		# Making the frame into HSV and backproject the HSV frame
-	 	hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+		hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 		dst = cv2.calcBackProject([hsv],[0],roi_hist,[0,180],1)
 
 		# Apply meanshift to get the new location
@@ -103,63 +87,38 @@ def CamShiftTrack(frame):
 		cv2.polylines(frame,[pts],True, 255,2)
 
 		# Draw the center
-		cx = (pts[0][0]+pts[1][0])/2
-		cy = (pts[0][1]+pts[2][1])/2
+		cx = (pts[0][0] + pts[1][0]) / 2
+		cy = (pts[0][1] + pts[2][1]) / 2
 		cv2.circle(frame, (cx, cy), 4, (0, 255, 0), 2)
-		# cv2.imshow('img2',frame)
+	cv2.imshow('Camera',frame)
 
-	# handle if the 'i' key is pressed, then go into ROI
-	# selection mode
-	cv2.imshow("image", frame)
-	key = cv2.waitKey(1) & 0xFF
-	if key == ord("i") and len(roiPts) < 4:
-		# indicate that we are in input mode and clone the
-		# frame
-		inputMode = True
-		orig = frame.copy()
 
-		# keep looping until 4 reference ROI points have
-		# been selected; press any key to exit ROI selction
-		# mode once 4 points have been selected
-		while len(roiPts) < 4:
-			cv2.imshow("image", frame)
-			cv2.waitKey(0)
-
-		# determine the top-left and bottom-right points
-		roiPts = np.array(roiPts)
-		s = roiPts.sum(axis = 1)
-		tl = roiPts[np.argmin(s)]
-		br = roiPts[np.argmax(s)]
-
-		# grab the ROI for the bounding box and convert it
-		# to the HSV color space
-		roi = orig[tl[1]:br[1], tl[0]:br[0]]
-		roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-
-		# compute a HSV histogram for the ROI and store the
-		# bounding box
-		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
-		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-		roiBox = (tl[0], tl[1], br[0], br[1])
-
-	# k = cv2.waitKey(60) & 0xff
-	if key == 27:
-		break
 
 def showImage(dado):
-	global countCam
-	countCam += 1
+	global Fundo_Atual, Imagem_ComFundo
+	global PegarFundo
+
 	now = rospy.get_rostime()
 	imgtime = dado.header.stamp
-	lag = nows-imgtime
+	lag = now - imgtime
 	delay = lag.secs
 	if delay > atraso and check_delay == True:
 		return
 	antes = time.clock()
 	cv_image = bridge.compressed_imgmsg_to_cv2(dado, "bgr8")
-	media, centro = CamShiftTrack(cv_image)
+	CamShiftTrack(cv_image)
+	# media, centro = identifica_cor(cv_image)
 	depois = time.clock()
-	#  cv2.imshow("Camera", cv_image)
+	if PegarFundo: Fundo_Atual = cv_image
+	else: Imagem_ComFundo = cv_image
+
+	cv2.imshow("Camera", cv_image)
+	cv2.waitKey(1)
+
+
+
+################################################################################
+
 
 ################################################################################
 
@@ -198,9 +157,10 @@ class StandBy(smach.State):
 
 class Survive(smach.State):
 	def __init__(self):
-		smach.State.__init__(self, outcomes = ['Sobreviver','AnalisarI'])
+		smach.State.__init__(self, outcomes = ['Sobreviver','AnalisarI',"Aprender"])
 		self.count = 0
 		self.countMax = 3000
+		self.flag = False
 
 	def execute(self, userdata):
 		global pub_Move
@@ -210,8 +170,13 @@ class Survive(smach.State):
 		if self.count > self.countMax:  # Altura < 2,5m
 			vel = Twist(Vector3(0,0,0.2), Vector3(0,0,0))
 			pub_Move.publish(vel)
-			return 'Pousar'
-		return 'Mover'
+			self.count = 0
+			if self.flag: return 'AnalisarI'
+			else:
+				self.flag = True
+				return "Aprender"
+
+		return 'Sobreviver'
 
 class AnalisandoI(smach.State):
 	def __init__(self):
@@ -285,7 +250,7 @@ class Gira(smach.State):
 
 class Manobra(smach.State):
 	def __init__(self):
-		smach.State.__init__(self, outcomes = ['Manobrar','Sobreviver'])
+		smach.State.__init__(self, outcomes = ['Manobra','Sobreviver'])
 		self.count = 0
 		self.countMax = 3000
 
@@ -314,6 +279,82 @@ class Land(smach.State):
 		else:
 			return 'Pousar'
 
+class Aprender(smach.State):
+	def __init__(self):
+		smach.State.__init__(self, outcomes = ['Aprender','Sobreviver'])
+		self.Dono = 0
+		self.count = 0
+		self.countLimit = 10000 # 10 segundos
+
+	def execute(self, userdata):
+		global pub_Land
+		global PegarFundo
+		rospy.loginfo('Executing state APRENDENDO')
+		PegarFundo = True
+		if self.count < self.countLimit:
+			# bipa
+			PegarFundo = False
+		else:
+			self.subtrairFundo()
+			self.Dono = 1
+
+		self.count += 1
+		if self.Dono:
+			self.count = 0
+			return 'Sobreviver'
+		else:
+			return "Aprender"
+
+	def subtrairFundo(self):
+		global Fundo_Atual, Fundo_ComObjeto
+		GrayLimit = 10
+		
+		grayFundo = cv2.cvtColor(Fundo_Atual, cv2.COLOR_BGR2GRAY)
+		grayComObjeto = cv2.cvtColor(Fundo_ComObjeto, cv2.COLOR_BGR2GRAY)
+
+		diferenca = cv2.subtract(grayComObjeto, grayFundo)
+		diferenca2 = cv2.subtract(grayFundo, grayComObjeto)
+
+		or_img = cv2.bitwise_or(diferenca, diferenca2)
+		not_img = cv2.bitwise_not(or_img)
+
+
+		img = cv2.inRange(not_img, GrayLimit, 255)  # OR or NOT
+
+		segmentado_cor = cv2.morphologyEx(segmentado_cor,cv2.MORPH_CLOSE,np.ones((7, 7)))
+
+		img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+		maior_contorno = None
+		maior_contorno_area = 0
+
+
+		for cnt in contornos:
+			area = cv2.contourArea(cnt)
+			if area > maior_contorno_area:
+				maior_contorno = cnt
+				maior_contorno_area = area
+				addRoiPoints(maior_contorno)
+
+	def addRoiPoints(self,roiPts):
+		roiPts = np.array(roiPts)
+		s = roiPts.sum(axis = 1)
+		tl = roiPts[np.argmin(s)]
+		br = roiPts[np.argmax(s)]
+
+		# grab the ROI for the bounding box and convert it
+		# to the HSV color space
+		roi = orig[tl[1]:br[1], tl[0]:br[0]]
+		roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+		# compute a HSV histogram for the ROI and store the
+		# bounding box
+		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
+		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+		roiBox = (tl[0], tl[1], br[0], br[1])
+		return roiBox
+
+
 def maquina():
 	global pub_TakeOff, pub_Land, pub_Move
 	rospy.init_node('Drone_State_Machine')
@@ -329,9 +370,7 @@ def maquina():
 
 	# Open the container
 	with sm:
-
 		# Add states to the container
-
 
 		smach.StateMachine.add('TAKEOFF', TakeOff(),
 								transitions = {'Decolar':'TAKEOFF',
@@ -343,7 +382,8 @@ def maquina():
 
 		smach.StateMachine.add('SURVIVE', Survive(),
 								transitions = {'Sobreviver':'SURVIVE',
-												'AnalisarI':'ANALISANDOI'})
+												'AnalisarI':'ANALISANDOI',
+												'Aprender':'LEARN'})
 
 		smach.StateMachine.add('ANALISANDOI', AnalisandoI(),
 								transitions = {'AnalisarI':'ANALISANDOI',
@@ -351,7 +391,7 @@ def maquina():
 												'Manobra': 'MANOBRA'})
 
 		smach.StateMachine.add('ANALISANDOII', AnalisandoII(),
-								transitions = {'AnalisarII':'ANALISANDOII',
+								transitions = {'AnalisandoII':'ANALISANDOII',
 												'Mover':'MOVE',
 												'Girar':'GIRA'})
 
@@ -370,6 +410,10 @@ def maquina():
 		smach.StateMachine.add('LAND', Land(),
 								transitions = {'Pousar':'LAND',
 												'StandBy':'STANDBY'})
+
+		smach.StateMachine.add("LEARN",Aprender(),
+								transitions = {'Aprender':'LEARN',
+												'Sobreviver':'SURVIVE'})
 
 
 

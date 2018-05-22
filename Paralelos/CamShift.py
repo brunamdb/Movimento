@@ -77,8 +77,11 @@ while(1):
         # determine the top-left and bottom-right points
         roiPts = np.array(roiPts)
         s = roiPts.sum(axis = 1)
+        print(s)
         tl = roiPts[np.argmin(s)]
         br = roiPts[np.argmax(s)]
+        print(tl)
+        print(br)
 
         # grab the ROI for the bounding box and convert it
         # to the HSV color space
