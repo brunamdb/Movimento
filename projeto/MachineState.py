@@ -20,59 +20,23 @@ bridge = CvBridge()
 atraso = 1.5  # Atraso aceitavel pela Camera
 
 roiBox = None
+roi_hist = None
 
 PegarFundo = False
 Fundo_Atual = []
-Imagem_ComFundo = []
+Fundo_ComObjeto = []
 
+frame_global = []
 
-# Range de Cor a ser procurado (Tempoarario para testes)
-cor_maior = np.array([70, 255, 255])
-cor_menor = np.array([50, 50, 50])
+term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
 
 ################################################################################
 
 
 
-######### REMOVER ------- FUNC ANTIGA
-
-def identifica_cor(frame):
-	global cor_maior, cor_menor, frame_hsv
-	frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-	segmentado_cor = cv2.inRange(frame_hsv, cor_menor, cor_maior)
-
-	segmentado_cor = cv2.morphologyEx(segmentado_cor,cv2.MORPH_CLOSE,np.ones((7, 7)))
-
-	img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-	maior_contorno = None
-	maior_contorno_area = 0
-
-
-	for cnt in contornos:
-		area = cv2.contourArea(cnt)
-		if area > maior_contorno_area:
-			maior_contorno = cnt
-			maior_contorno_area = area
-
-	if not maior_contorno is None :
-		cv2.drawContours(frame, [maior_contorno], -1, [0, 0, 255], 5)
-		maior_contorno = np.reshape(maior_contorno, (maior_contorno.shape[0], 2))
-		media = maior_contorno.mean(axis=0)
-		media = media.astype(np.int32)
-		cv2.circle(frame, tuple(media), 5, [0, 255, 0])
-	else:
-		media = (0, 0)
-	cv2.imshow('video', frame)
-	cv2.imshow('seg', segmentado_cor)
-	cv2.waitKey(1)
-
-	centro = (frame.shape[0]//2, frame.shape[1]//2)
-	return media, centro
-
 def CamShiftTrack(frame):
-	global roiBox
+	global roiBox, roi_hist, term_crit
+	print(roiBox)
 	if roiBox is not None:
 		# Making the frame into HSV and backproject the HSV frame
 		hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -90,13 +54,15 @@ def CamShiftTrack(frame):
 		cx = (pts[0][0] + pts[1][0]) / 2
 		cy = (pts[0][1] + pts[2][1]) / 2
 		cv2.circle(frame, (cx, cy), 4, (0, 255, 0), 2)
-	cv2.imshow('Camera',frame)
+	cv2.imshow('CameraCam',frame)
+	cv2.waitKey(1)
 
 
 
 def showImage(dado):
-	global Fundo_Atual, Imagem_ComFundo
+	global Fundo_Atual, Fundo_ComObjeto
 	global PegarFundo
+	global frame_global
 
 	now = rospy.get_rostime()
 	imgtime = dado.header.stamp
@@ -110,7 +76,9 @@ def showImage(dado):
 	# media, centro = identifica_cor(cv_image)
 	depois = time.clock()
 	if PegarFundo: Fundo_Atual = cv_image
-	else: Imagem_ComFundo = cv_image
+	else: Fundo_ComObjeto = cv_image
+
+	frame_global = cv_image
 
 	cv2.imshow("Camera", cv_image)
 	cv2.waitKey(1)
@@ -152,6 +120,7 @@ class StandBy(smach.State):
 
 		self.count += 1
 		if self.count > self.countMax:  # Gesto para levantar
+			self.count = 0
 			return 'Decolar'
 		return 'StandBy'
 
@@ -160,7 +129,7 @@ class Survive(smach.State):
 		smach.State.__init__(self, outcomes = ['Sobreviver','AnalisarI',"Aprender"])
 		self.count = 0
 		self.countMax = 3000
-		self.flag = False
+		self.flagDono = False
 
 	def execute(self, userdata):
 		global pub_Move
@@ -171,9 +140,10 @@ class Survive(smach.State):
 			vel = Twist(Vector3(0,0,0.2), Vector3(0,0,0))
 			pub_Move.publish(vel)
 			self.count = 0
-			if self.flag: return 'AnalisarI'
+			if self.flagDono: return 'AnalisarI'
 			else:
-				self.flag = True
+				self.flagDono = True
+				self.count = 0
 				return "Aprender"
 
 		return 'Sobreviver'
@@ -192,8 +162,10 @@ class AnalisandoI(smach.State):
 		vel = Twist(Vector3(0,0,0.2), Vector3(0,0,0))
 		pub_Move.publish(vel)
 		if self.count > self.countMax: # Gesto para pousar
+			self.count = 0
 			return 'Pousar'
 		elif 1:  # Gesto para manobra
+			self.count = 0
 			return 'Manobra'
 		return 'AnalisandoI'
 
@@ -209,8 +181,10 @@ class AnalisandoII(smach.State):
 
 		self.count += 1
 		if self.count > self.countMax:  # Se nao estiver alinhado
+			self.count = 0
 			return 'Girar'
 		elif 1:  # Se estiver alinhado
+			self.count = 0
 			return 'Mover'
 		return 'AnalisandoII'
 
@@ -228,6 +202,7 @@ class Move(smach.State):
 		vel = Twist(Vector3(0.2,0,0), Vector3(0,0,0))
 		pub_Move.publish(vel)
 		if self.count > self.countMax: # Segue o humano
+			self.count = 0
 			return 'Mover'
 		return 'Sobreviver'
 
@@ -293,7 +268,7 @@ class Aprender(smach.State):
 		PegarFundo = True
 		if self.count < self.countLimit:
 			# bipa
-			PegarFundo = False
+			PegarFundo = True
 		else:
 			self.subtrairFundo()
 			self.Dono = 1
@@ -308,20 +283,32 @@ class Aprender(smach.State):
 	def subtrairFundo(self):
 		global Fundo_Atual, Fundo_ComObjeto
 		GrayLimit = 10
-		
-		grayFundo = cv2.cvtColor(Fundo_Atual, cv2.COLOR_BGR2GRAY)
-		grayComObjeto = cv2.cvtColor(Fundo_ComObjeto, cv2.COLOR_BGR2GRAY)
 
-		diferenca = cv2.subtract(grayComObjeto, grayFundo)
-		diferenca2 = cv2.subtract(grayFundo, grayComObjeto)
+
+		grayFundo = cv2.GaussianBlur(Fundo_Atual, (5, 5), 0)
+		grayComObjeto = cv2.GaussianBlur(Fundo_ComObjeto, (5, 5), 0)
+
+		diferenca2 = cv2.subtract(grayComObjeto, grayFundo)
+		diferenca = cv2.subtract(grayFundo, grayComObjeto)
 
 		or_img = cv2.bitwise_or(diferenca, diferenca2)
-		not_img = cv2.bitwise_not(or_img)
+		ret, limiar = cv2.threshold(or_img, np.percentile(or_img, 97), 255, cv2.THRESH_BINARY)
+
+		kernel = np.ones((6, 6))
+		limiar_open = cv2.morphologyEx(limiar, cv2.MORPH_OPEN, kernel)
+		limiar_close = cv2.morphologyEx(limiar, cv2.MORPH_CLOSE, kernel)
 
 
-		img = cv2.inRange(not_img, GrayLimit, 255)  # OR or NOT
+		cv2.imwrite("grayFundo.jpg", grayComObjeto)
+		cv2.imwrite("grayObjeto.jpg", grayFundo)
+		cv2.imwrite("open.jpg", limiar_open)
+		cv2.imwrite("close.jpg", limiar_close)
 
-		segmentado_cor = cv2.morphologyEx(segmentado_cor,cv2.MORPH_CLOSE,np.ones((7, 7)))
+
+
+		img = cv2.inRange(limiar_open, GrayLimit, 255)
+
+		segmentado_cor = cv2.morphologyEx(img,cv2.MORPH_CLOSE,np.ones((7, 7)))
 
 		img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -334,25 +321,33 @@ class Aprender(smach.State):
 			if area > maior_contorno_area:
 				maior_contorno = cnt
 				maior_contorno_area = area
-				addRoiPoints(maior_contorno)
 
-	def addRoiPoints(self,roiPts):
+		if not maior_contorno is None :
+			print("maior: " + str(maior_contorno))
+			self.addRoiPoints(maior_contorno)
+
+	def addRoiPoints(self, roiPts):
+		global roiBox, frame_global, roi_hist
 		roiPts = np.array(roiPts)
-		s = roiPts.sum(axis = 1)
-		tl = roiPts[np.argmin(s)]
-		br = roiPts[np.argmax(s)]
+		s = roiPts.sum(axis=1)
 
-		# grab the ROI for the bounding box and convert it
-		# to the HSV color space
-		roi = orig[tl[1]:br[1], tl[0]:br[0]]
+		xs = s[:,0]
+		ys = s[:,1]
+
+		min_x = np.argmin(xs)
+		max_x = np.argmax(xs)
+		min_y = np.argmin(ys)
+		max_y = np.argmax(ys)
+
+		orig = frame_global.copy()
+
+		roi = orig[min_y:max_y, min_x:max_x]
 		roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-		# compute a HSV histogram for the ROI and store the
-		# bounding box
 		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-		roiBox = (tl[0], tl[1], br[0], br[1])
-		return roiBox
+
+		roiBox = (min_x, min_x, max_x, max_y)
 
 
 def maquina():
