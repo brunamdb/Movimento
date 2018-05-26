@@ -304,11 +304,17 @@ class Aprender(smach.State):
 		cv2.imwrite("open.jpg", limiar_open)
 		cv2.imwrite("close.jpg", limiar_close)
 
+		#################################################################
 
-
-		img = cv2.inRange(limiar_open, GrayLimit, 255)
+		img = cv2.inRange(limiar_close, 0, 255)
 
 		segmentado_cor = cv2.morphologyEx(img,cv2.MORPH_CLOSE,np.ones((7, 7)))
+
+		# Esse segundo inRange faz com que não precisamos criar os arrays de HSV
+		segmentado_cor = cv2.inRange(segmentado_cor, -1, 200)
+
+		# Outra hipotese é que os contornos estejam saindo errado (menos provavel)
+		cv2.imwrite("segCor.jpg", segmentado_cor)
 
 		img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -322,15 +328,15 @@ class Aprender(smach.State):
 				maior_contorno = cnt
 				maior_contorno_area = area
 
+		print("len: " + str(len(contornos)))
 		if not maior_contorno is None :
-			print("maior: " + str(maior_contorno))
-			self.addRoiPoints(maior_contorno)
+			self.addRoiPoints(maior_contorno, Fundo_ComObjeto)
 
-	def addRoiPoints(self, roiPts):
-		global roiBox, frame_global, roi_hist
+	def addRoiPoints(self, roiPts, imagem):
+		global roiBox, roi_hist
 		roiPts = np.array(roiPts)
 		s = roiPts.sum(axis=1)
-
+		# A hipotese atual: pontos extraidos estao errados
 		xs = s[:,0]
 		ys = s[:,1]
 
@@ -338,11 +344,19 @@ class Aprender(smach.State):
 		max_x = np.argmax(xs)
 		min_y = np.argmin(ys)
 		max_y = np.argmax(ys)
+		print("x: " + str(min_x) + " : " + str(max_x))
 
-		orig = frame_global.copy()
+		print("y: " + str(min_y) + " : " + str(max_y))
+		orig = imagem.copy()
+		print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+		print(len(orig))
+		cv2.imwrite("orig.jpg", orig)
+		roi = orig[min_x : max_x, min_y : max_y]
+		cv2.imwrite("roi.jpg", roi)
+		print(len(roi))
 
-		roi = orig[min_y:max_y, min_x:max_x]
 		roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+		cv2.imwrite("roiHSV.jpg", roi)
 
 		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
