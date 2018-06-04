@@ -310,10 +310,10 @@ class Aprender(smach.State):
 
 		segmentado_cor = cv2.morphologyEx(img,cv2.MORPH_CLOSE,np.ones((7, 7)))
 
-		# Esse segundo inRange faz com que não precisamos criar os arrays de HSV
+		# Esse segundo inRange faz com que nao precisamos criar os arrays de HSV
 		segmentado_cor = cv2.inRange(segmentado_cor, -1, 200)
 
-		# Outra hipotese é que os contornos estejam saindo errado (menos provavel)
+		# Outra hipotese eh que os contornos estejam saindo errado (menos provavel)
 		cv2.imwrite("segCor.jpg", segmentado_cor)
 
 		img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -330,20 +330,19 @@ class Aprender(smach.State):
 
 		print("len: " + str(len(contornos)))
 		if not maior_contorno is None :
-			self.addRoiPoints(maior_contorno, Fundo_ComObjeto)
+			self.addRoiPoints(maior_contorno, grayFundo)
 
 	def addRoiPoints(self, roiPts, imagem):
 		global roiBox, roi_hist
 		roiPts = np.array(roiPts)
 		s = roiPts.sum(axis=1)
-		# A hipotese atual: pontos extraidos estao errados
-		xs = s[:,0]
-		ys = s[:,1]
+		xs = s[:,1]
+		ys = s[:,0]
 
-		min_x = np.argmin(xs)
-		max_x = np.argmax(xs)
-		min_y = np.argmin(ys)
-		max_y = np.argmax(ys)
+		min_x = np.min(xs)
+		max_x = np.max(xs)
+		min_y = np.min(ys)
+		max_y = np.max(ys)
 		print("x: " + str(min_x) + " : " + str(max_x))
 
 		print("y: " + str(min_y) + " : " + str(max_y))
@@ -361,7 +360,7 @@ class Aprender(smach.State):
 		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
 
-		roiBox = (min_x, min_x, max_x, max_y)
+		roiBox = (min_x, min_y, max_x, max_y)
 
 
 def maquina():
