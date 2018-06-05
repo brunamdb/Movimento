@@ -30,6 +30,8 @@ frame_global = []
 
 term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
 
+centro = (0, 0)
+
 ################################################################################
 
 
@@ -53,7 +55,10 @@ def CamShiftTrack(frame):
 		# Draw the center
 		cx = (pts[0][0] + pts[1][0]) / 2
 		cy = (pts[0][1] + pts[2][1]) / 2
-		cv2.circle(frame, (cx, cy), 4, (0, 255, 0), 2)
+
+		centro = (cx, cy)
+
+		cv2.circle(frame, centro, 4, (0, 255, 0), 2)
 	cv2.imshow('CameraCam',frame)
 	cv2.waitKey(1)
 
@@ -95,18 +100,25 @@ class TakeOff(smach.State):
 		smach.State.__init__(self, outcomes = ['Decolar','Sobreviver'])
 		self.count = 0
 		self.countMax = 5000
+		self.alt25 = self.countMax + 2000  # Regula altura do drone
 
 	def execute(self, userdata):
-		global pub_TakeOff
+		global pub_TakeOff, pub_Move, pub_Cam
 		rospy.loginfo('Executing state TAKEOFF')
 
 		#comando para aprender a ler a cor
 		self.count+=1
-		pub_TakeOff.publish(Empty())
-		if self.count > self.countMax:
-			return 'Sobreviver'
+
+		if self.count < self.countMax:
+			pub_TakeOff.publish(Empty())
 		else:
-			return 'Decolar'
+			if self.count < self.alt25:
+				vel = Twist(Vector3(0,0,0.8), Vector3(0,0,0))
+				pub_Move.publish(vel)
+				pub_Cam.publish(Twist(Vector3(0,0,0), Vector3(0,-75,0)))
+			else:
+				return 'Sobreviver'
+		return 'Decolar'
 
 class StandBy(smach.State):
 	def __init__(self):
@@ -170,6 +182,7 @@ class AnalisandoI(smach.State):
 		return 'AnalisandoI'
 
 class AnalisandoII(smach.State):
+	global centro
 	def __init__(self):
 		smach.State.__init__(self, outcomes = ['AnalisandoII','Mover','Girar'])
 		self.count = 0
@@ -185,6 +198,7 @@ class AnalisandoII(smach.State):
 			return 'Girar'
 		elif 1:  # Se estiver alinhado
 			self.count = 0
+			# if
 			return 'Mover'
 		return 'AnalisandoII'
 
@@ -313,7 +327,7 @@ class Aprender(smach.State):
 		# Esse segundo inRange faz com que nao precisamos criar os arrays de HSV
 		segmentado_cor = cv2.inRange(segmentado_cor, -1, 200)
 
-		# Outra hipotese eh que os contornos estejam saindo errado (menos provavel)
+
 		cv2.imwrite("segCor.jpg", segmentado_cor)
 
 		img_out, contornos, arvore = cv2.findContours(segmentado_cor.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -364,11 +378,12 @@ class Aprender(smach.State):
 
 
 def maquina():
-	global pub_TakeOff, pub_Land, pub_Move
+	global pub_TakeOff, pub_Land, pub_Move, pub_Cam
 	rospy.init_node('Drone_State_Machine')
 	pub_TakeOff = rospy.Publisher("bebop/takeoff", Empty, queue_size = 10)
 	pub_Land = rospy.Publisher("bebop/land", Empty, queue_size = 10)
 	pub_Move = rospy.Publisher("bebop/cmd_vel", Twist, queue_size = 10)
+	pub_Cam = rospy.Publisher("bebop/camera_control", Twist, queue_size = 10)
 
 	sub_Cam = rospy.Subscriber("bebop/image_raw/compressed", CompressedImage, showImage, queue_size = 10)
 	rate = rospy.Rate(10) # 10hz
