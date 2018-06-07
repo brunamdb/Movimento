@@ -85,8 +85,8 @@ def showImage(dado):
 
 	frame_global = cv_image
 
-	cv2.imshow("Camera", cv_image)
-	cv2.waitKey(1)
+	# cv2.imshow("Camera", cv_image)
+	# cv2.waitKey(1)
 
 
 
@@ -113,7 +113,7 @@ class TakeOff(smach.State):
 			pub_TakeOff.publish(Empty())
 		else:
 			if self.count < self.alt25:
-				vel = Twist(Vector3(0,0,0.8), Vector3(0,0,0))
+				vel = Twist(Vector3(0,0,1.5), Vector3(0,0,0))
 				pub_Move.publish(vel)
 				pub_Cam.publish(Twist(Vector3(0,0,0), Vector3(0,-75,0)))
 			else:
@@ -369,7 +369,13 @@ class Aprender(smach.State):
 		print(len(roi))
 
 		roi = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+		origHSV = cv2.cvtColor(orig, cv2.COLOR_BGR2HSV)
 		cv2.imwrite("roiHSV.jpg", roi)
+
+		lista_to_hist = []
+		for i in range(len(xs)):
+			lista_to_hist.append(origHSV[xs[i],ys[i]])
+		lista_to_hist = np.array(lista_to_hist)
 
 		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
