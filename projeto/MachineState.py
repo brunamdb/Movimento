@@ -344,9 +344,10 @@ class Aprender(smach.State):
 
 		print("len: " + str(len(contornos)))
 		if not maior_contorno is None :
-			self.addRoiPoints(maior_contorno, grayFundo)
+			imagem = cv2.cvtColor(grayFundo, cv2.COLOR_BGR2HSV)
+			self.addRoiPoints(maior_contorno, imagem, segmentado_cor)
 
-	def addRoiPoints(self, roiPts, imagem):
+	def addRoiPoints(self, roiPts, imagem, preMask):
 		global roiBox, roi_hist
 		roiPts = np.array(roiPts)
 		s = roiPts.sum(axis=1)
@@ -357,6 +358,15 @@ class Aprender(smach.State):
 		max_x = np.max(xs)
 		min_y = np.min(ys)
 		max_y = np.max(ys)
+
+		for col in range(len(preMask[0])):
+			if col > max_y or col < min_y: preMask[:,col] = 0
+		for row in range(len(preMask)):
+			if row > max_x or row < min_x: preMask[row,:] = 0
+		Mask = preMask
+	 	# Mask = cv2.inRange(preMask, -1, 200)
+		cv2.imwrite("Mask.jpg", Mask)
+
 		print("x: " + str(min_x) + " : " + str(max_x))
 
 		print("y: " + str(min_y) + " : " + str(max_y))
@@ -377,11 +387,10 @@ class Aprender(smach.State):
 			lista_to_hist.append(origHSV[xs[i],ys[i]])
 		lista_to_hist = np.array(lista_to_hist)
 
-		roi_hist = cv2.calcHist([roi], [0], None, [16], [0, 180])
+		roi_hist = cv2.calcHist([imagem], [0], preMask, [256], [0, 255])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
 
 		roiBox = (min_x, min_y, max_x, max_y)
-
 
 def maquina():
 	global pub_TakeOff, pub_Land, pub_Move, pub_Cam
