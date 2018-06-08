@@ -24,6 +24,15 @@ tracker = cv2.TrackerKCF_create()
 
 atraso = 1.5  # Atraso aceitavel pela Camera
 
+xTela = 300
+yTela = 200
+
+Move_X = 0
+Move_Y = 0
+
+velRobot = 0.2
+MovCount = 1000
+
 roiBox = None
 flagRoiBox = False
 flagLearned = False
@@ -72,7 +81,7 @@ def CamShiftTrack(frame):
 	cv2.waitKey(1)
 
 def Track(frame):
-	global roiBox, flagRoiBox, flagLearned, global_imagem
+	global roiBox, flagRoiBox, flagLearned, global_imagem, centroObj
 	if flagLearned:
 		if roiBox is not None:
 			rospy.loginfo('1')
@@ -90,6 +99,7 @@ def Track(frame):
 					cx = int((roiBox[0] + roiBox[2]) / 2)
 					cy = int((roiBox[1] + roiBox[3]) / 2)
 					centro = (cx, cy)
+					centroObj = centro
 					cv2.circle(frame, centro, 4, (0, 255, 0), 2)
 				else:
 					# Tracking failure
@@ -105,6 +115,7 @@ def showImage(dado):
 	global PegarFundo
 	global frame_global
 	global check_delay
+	global xTela, yTela
 
 	now = rospy.get_rostime()
 	imgtime = dado.header.stamp
@@ -114,7 +125,7 @@ def showImage(dado):
 		return
 	antes = time.clock()
 	cv_image = bridge.compressed_imgmsg_to_cv2(dado, "bgr8")
-	cv_image = cv2.resize(cv_image,(300,200))
+	cv_image = cv2.resize(cv_image,(xTela,yTela))
 	Track(cv_image)
 	# media, centro = identifica_cor(cv_image)
 	depois = time.clock()
@@ -219,14 +230,15 @@ class AnalisandoI(smach.State):
 		return 'AnalisandoI'
 
 class AnalisandoII(smach.State):
-	global centro
 	def __init__(self):
 		smach.State.__init__(self, outcomes = ['AnalisandoII','Mover','Girar'])
 		self.count = 0
 		self.countMax = 3000
 
 	def execute(self, userdata):
-		global pub_Move
+		global pub_Move, Move_X, Move_Y
+		global xTela, yTela, centroObj
+		global velCount
 		rospy.loginfo('Executing state ANALISANDOII')
 
 		self.count += 1
@@ -234,8 +246,21 @@ class AnalisandoII(smach.State):
 			self.count = 0
 			return 'Girar'
 		elif 1:  # Se estiver alinhado
+			dX = centroObj[0] - int(xTela/2)
+			dY = centroObj[1] - int(yTela/2)
 			self.count = 0
-			# if
+			if dX < -20:
+				# Esquerda
+				Move_X = -MovCount
+			elif dX > 20:
+				# Direita
+				Move_X = MovCount
+			if dY < -20:
+				# Frente
+				Move_Y = -MovCount
+			elif dY > 20:
+				# Tras
+				Move_Y = MovCount
 			return 'Mover'
 		return 'AnalisandoII'
 
@@ -247,13 +272,25 @@ class Move(smach.State):
 
 	def execute(self, userdata):
 		global pub_Move
+		global Move_X, Move_Y, velRobot
 		rospy.loginfo('Executing state MOVE')
 
 		self.count += 1
-		vel = Twist(Vector3(0.2,0,0), Vector3(0,0,0))
 		pub_Move.publish(vel)
-		if self.count > self.countMax: # Segue o humano
-			self.count = 0
+		if Move_X != 0 or Move_Y != 0: # Segue o humano
+			if Move_X > 0:
+				vel = Twist(Vector3(velRobot,0,0), Vector3(0,0,0))
+				Move_X -= 1
+			elif Move_X < 0:
+				vel = Twist(Vector3(-velRobot,0,0), Vector3(0,0,0))
+				Move_X += 1
+
+			if Move_Y > 0:
+				vel = Twist(Vector3(0,velRobot,0), Vector3(0,0,0))
+				Move_Y -= 1
+			elif Move_Y < 0:
+				vel = Twist(Vector3(0,-velRobot,0), Vector3(0,0,0))
+				Move_Y += 1
 			return 'Mover'
 		return 'Sobreviver'
 
