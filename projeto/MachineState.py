@@ -17,16 +17,25 @@ from geometry_msgs.msg import Twist, Vector3, Pose, Vector3Stamped
 
 bridge = CvBridge()
 
+# Trackers
+tracker_types = ['BOOSTING', 'MIL', 'KCF', 'TLD', 'MEDIANFLOW', 'GOTURN']
+tracker_type = tracker_types[2]
+tracker = cv2.TrackerKCF_create()
+
 atraso = 1.5  # Atraso aceitavel pela Camera
 
 roiBox = None
+flagRoiBox = False
+flagLearned = False
 roi_hist = None
+check_delay = True
 
 PegarFundo = False
 Fundo_Atual = []
 Fundo_ComObjeto = []
 
 frame_global = []
+global_imagem = []
 
 term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
 
@@ -62,12 +71,40 @@ def CamShiftTrack(frame):
 	cv2.imshow('CameraCam',frame)
 	cv2.waitKey(1)
 
+def Track(frame):
+	global roiBox, flagRoiBox, flagLearned, global_imagem
+	if flagLearned:
+		if roiBox is not None:
+			rospy.loginfo('1')
+			if not flagRoiBox:
+				rospy.loginfo('2')
+				ok = tracker.init(global_imagem, roiBox)
+				rospy.loginfo('3')
+				flagRoiBox = True
+			else:
+				rospy.loginfo('4')
+				ok, roiBox = tracker.update(frame)
+				if ok:
+					# Tracking success
+					rospy.loginfo('5')
+					cx = int((roiBox[0] + roiBox[2]) / 2)
+					cy = int((roiBox[1] + roiBox[3]) / 2)
+					centro = (cx, cy)
+					cv2.circle(frame, centro, 4, (0, 255, 0), 2)
+				else:
+					# Tracking failure
+					rospy.loginfo('6')
+					cv2.putText(frame, "Tracking failure detected", (100, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
 
+				cv2.putText(frame, tracker_type + " Tracker", (100, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (50, 170, 50), 2)
+	cv2.imshow('Tracking',frame)
+	cv2.waitKey(1)
 
 def showImage(dado):
 	global Fundo_Atual, Fundo_ComObjeto
 	global PegarFundo
 	global frame_global
+	global check_delay
 
 	now = rospy.get_rostime()
 	imgtime = dado.header.stamp
@@ -77,7 +114,8 @@ def showImage(dado):
 		return
 	antes = time.clock()
 	cv_image = bridge.compressed_imgmsg_to_cv2(dado, "bgr8")
-	CamShiftTrack(cv_image)
+	cv_image = cv2.resize(cv_image,(300,200))
+	Track(cv_image)
 	# media, centro = identifica_cor(cv_image)
 	depois = time.clock()
 	if PegarFundo: Fundo_Atual = cv_image
@@ -85,13 +123,12 @@ def showImage(dado):
 
 	frame_global = cv_image
 
-	# cv2.imshow("Camera", cv_image)
-	# cv2.waitKey(1)
+	#cv2.imshow("Camera", cv_image)
+	#cv2.waitKey(1)
 
 
 
 ################################################################################
-
 
 ################################################################################
 
@@ -113,7 +150,7 @@ class TakeOff(smach.State):
 			pub_TakeOff.publish(Empty())
 		else:
 			if self.count < self.alt25:
-				vel = Twist(Vector3(0,0,1.5), Vector3(0,0,0))
+				vel = Twist(Vector3(0,0,1), Vector3(0,0,0))
 				pub_Move.publish(vel)
 				pub_Cam.publish(Twist(Vector3(0,0,0), Vector3(0,-75,0)))
 			else:
@@ -278,6 +315,7 @@ class Aprender(smach.State):
 	def execute(self, userdata):
 		global pub_Land
 		global PegarFundo
+		global flagLearned
 		rospy.loginfo('Executing state APRENDENDO')
 		PegarFundo = True
 		if self.count < self.countLimit:
@@ -290,12 +328,13 @@ class Aprender(smach.State):
 		self.count += 1
 		if self.Dono:
 			self.count = 0
+			flagLearned = True
 			return 'Sobreviver'
 		else:
 			return "Aprender"
 
 	def subtrairFundo(self):
-		global Fundo_Atual, Fundo_ComObjeto
+		global Fundo_Atual, Fundo_ComObjeto, global_imagem
 		GrayLimit = 10
 
 
@@ -345,6 +384,7 @@ class Aprender(smach.State):
 		print("len: " + str(len(contornos)))
 		if not maior_contorno is None :
 			imagem = cv2.cvtColor(grayFundo, cv2.COLOR_BGR2HSV)
+			global_imagem = imagem
 			self.addRoiPoints(maior_contorno, imagem, segmentado_cor)
 
 	def addRoiPoints(self, roiPts, imagem, preMask):
@@ -387,7 +427,7 @@ class Aprender(smach.State):
 			lista_to_hist.append(origHSV[xs[i],ys[i]])
 		lista_to_hist = np.array(lista_to_hist)
 
-		roi_hist = cv2.calcHist([imagem], [0], preMask, [256], [0, 255])
+		roi_hist = cv2.calcHist([imagem], [0], Mask, [256], [0, 255])
 		roi_hist = cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
 
 		roiBox = (min_x, min_y, max_x, max_y)
