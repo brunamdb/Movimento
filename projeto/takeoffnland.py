@@ -20,7 +20,7 @@ if __name__ == '__main__':
 	count = 0
 	while not rospy.is_shutdown():
 		if count < 100:
-			print("takeoff")
+			print("takeoff2")
 			takeoff()
 		else:
 			print("land")
