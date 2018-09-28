@@ -3,7 +3,8 @@
 import rospy
 from std_msgs.msg import String
 from std_msgs.msg import Empty
-from std_msgs.msg import Twist, Vector3
+from std_msgs.msg import Twist
+from std_msgs.msg import Vector3
 
 def takeoff(): #Publica nas vari'aveis para realizar a funcao
 	global pub_TakeOff
