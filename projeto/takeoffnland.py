@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#/usr/bin/env python
 import rospy
 from std_msgs.msg import String
 from std_msgs.msg import Empty
